@@ -81,6 +81,14 @@ Async jobs via Executive tools (`openexecutive.coding_agents`) and HTTP list/get
 
 Jobs do **not** block the API request. The model must pass **`workspace_id`** from the allowlist — never a raw filesystem path.
 
+### When a job finishes
+
+Chat does not wait on the subprocess. On **succeeded**, **failed**, or **timed_out**, Open Executive raises a principal-facing card on `/today` (**Needs you**) via the same path as a drafted artifact (`source="artifact"`). It does **not** DM. **Cancelled** jobs do not create a card.
+
+The card names the `job_id`, the workspace **slug**, and status. Success cards include the artifact. Failure and timeout cards use one-voice status copy (not Cursor/OpenCode, and not runtime stderr). Operators can still inspect the technical log via `GET /coding-jobs/{job_id}`.
+
+Poll `get_coding_job` or `GET /coding-jobs/{job_id}` while a job is in flight; use `/today` when it has finished.
+
 ### Modes
 
 - **ask** and **plan** only in P1.
@@ -128,7 +136,7 @@ agent -p --trust --workspace <allowlisted-path> \
 
 Legacy binary name: `cursor-agent`.
 
-**OpenCode:** prefer `opencode serve` HTTP when `serve_url` is configured; else `opencode run --dir <path> --format json --agent plan "task"`. `--auto` is out of scope until P2.
+**OpenCode:** prefer `opencode serve` HTTP when `serve_url` is configured (`agent: plan` on session create and message). If serve cannot bind the allowlisted directory, fall back to `opencode run --dir <path> --format json --agent plan "task"`. HTTP read timeouts fail the job as timed out. `--auto` is out of scope until P2.
 
 ### HTTP job API
 

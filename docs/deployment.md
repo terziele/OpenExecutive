@@ -49,9 +49,10 @@ so the UI origin is the only one that *needs* to be public. See [auth.md](auth.m
 One volume, mounted at `/data`:
 
 - `/data/chroma_db/` — ChromaDB vector index (built-in knowledge + uploaded company docs)
-- `/data/episodic_memory.db` — SQLite: episodic memory, people, alerts, scheduled actions, audit log
+- `/data/episodic_memory.db` — SQLite: episodic memory, people, alerts, scheduled actions, audit log, **coding jobs**
 - `/data/company/profile.yaml` + `/data/company/docs/` — onboarding output + uploaded docs
 - `/data/company/mcp_servers.json` — MCP gateway config. Placing this file is what **enables** MCP when `MCP_ENABLED` is unset; set `MCP_ENABLED=false` to keep MCP off with the file in place. A config defining no servers under `mcpServers`, or a gateway that fails to start, is logged and skipped — the API boots without MCP tools (and without the email poller) rather than failing to boot.
+- `/data/company/coding_agents.yaml` — optional workspace allowlist for outbound coding jobs. A non-empty regular file (size > 0; YAML is **not** parsed at Settings load) infers the feature on; set `CODING_AGENTS_ENABLED=false` to keep it off with the file in place. Invalid YAML still auto-enables; `start_coding_job` then returns `config_unavailable`. Template: `packages/core/coding_agents.yaml.example`. Paths in that file are on the **job host**, not inside the API image.
 - `/data/google_credentials/` — Google Workspace OAuth token, if that integration is enabled
 
 Nothing hardcodes those paths. Each is an env var, and the defaults are
@@ -62,6 +63,7 @@ VECTOR_STORE_PATH             = /data/chroma_db
 EPISODIC_DB_PATH              = /data/episodic_memory.db
 COMPANY_PROFILE_PATH          = /data/company/profile.yaml
 MCP_SERVERS_CONFIG_PATH       = /data/company/mcp_servers.json
+CODING_AGENTS_CONFIG_PATH     = /data/company/coding_agents.yaml
 WORKSPACE_MCP_CREDENTIALS_DIR = /data/google_credentials
 ```
 
@@ -78,13 +80,21 @@ with "no company profile" on a fresh volume is expected, not a fault.
 | Variable | Why |
 |---|---|
 | `ANTHROPIC_API_KEY` | Every agent call. The app will not start without it. |
-| `BACKEND_SHARED_SECRET` | Gates every API route via `x-api-key`. Generate with `openssl rand -hex 32`; the UI needs the same value. |
+| `BACKEND_SHARED_SECRET` | Gates every API route via `x-api-key` (UI proxy) or `Authorization: Bearer` (MCP/CLI). Generate with `openssl rand -hex 32`; the UI needs the same value. Never put the secret in a URL query. |
 | `OE_PUBLIC_DEPLOYMENT=1` | **Set this on every internet-reachable instance.** See below. |
 | `BACKEND_ALLOWED_ORIGINS` | Comma-separated UI origins allowed through CORS, e.g. `https://exec.example.com`. |
 | `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_URL`, `ALLOWED_EMAILS` | UI sign-in. See [auth.md](auth.md). |
 
 Integrations (Slack, Discord, email, Google Workspace) are all optional and off
 unless their variables are set. [.env.example](../.env.example) is the full list.
+
+### Coding-agent jobs
+
+The default **api** container only mounts `/data`. It has **no git checkouts** and
+no Cursor CLI / OpenCode binaries. Ask/plan jobs must run on a machine that can
+execute those binaries against allowlisted paths (typically the `make dev` host).
+See [coding_agents.md](coding_agents.md). Do not expect jobs to succeed from a
+stock `make docker` API replica.
 
 ### `OE_PUBLIC_DEPLOYMENT`
 

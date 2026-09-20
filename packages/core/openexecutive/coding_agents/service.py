@@ -46,6 +46,14 @@ _COMPLETION_HEADLINES = {
     "failed": "Coding analysis failed",
     "timed_out": "Coding analysis timed out",
 }
+# Principal cards must not copy runtime/stderr (vendor names, paths).
+_PRINCIPAL_ERROR_DETAIL = {
+    "failed": (
+        "The analysis job did not finish successfully. "
+        "Ask me for the details if you need them."
+    ),
+    "timed_out": "The analysis job exceeded its time limit.",
+}
 _ALERT_BODY_MAX = 8000
 _HEADLINE_MAX = 160
 _TRUNCATION_SUFFIX = "\n...[truncated]"
@@ -100,11 +108,6 @@ def _truncate_for_tool(job: dict[str, Any]) -> dict[str, Any]:
         used += len(event)
     out["events"] = kept
     return out
-
-
-def _still_active(job_id: str) -> bool:
-    row = store.get_job(job_id)
-    return bool(row and row.get("status") in {"queued", "running"})
 
 
 async def start_job(
@@ -210,6 +213,12 @@ async def _execute_job(
     workspace: WorkspaceSpec,
     timeout_s: int,
 ) -> None:
+    """Run one job to a terminal store row, then maybe notify.
+
+    Terminal writes (succeeded / failed / timed_out / cancelled) honor
+    ``update_job``'s compare-and-swap boolean so a cancel that claimed first
+    cannot be overwritten, and a lost CAS never audits or notifies.
+    """
     row = store.get_job(job_id)
     if row is None:
         _JOB_RUNTIMES.pop(job_id, None)
@@ -224,29 +233,28 @@ async def _execute_job(
             runner.run(job, workspace),
             timeout=timeout_s,
         )
-    except TimeoutError:
+    except TimeoutError as exc:
         await _safe_abort(runner)
-        if not _still_active(job_id):
-            return
-        store.update_job(
+        if not store.update_job(
             job_id,
             status="timed_out",
-            error=f"Job exceeded {timeout_s}s",
+            error=str(exc).strip() or f"Job exceeded {timeout_s}s",
             expected_statuses=("queued", "running"),
-        )
+        ):
+            return
         store.append_event(job_id, "timed_out")
         audit.job_timed_out(job_id, runtime=job.runtime)
         _notify_job_completion(job_id)
         return
     except asyncio.CancelledError:
         await _safe_abort(runner)
-        store.update_job(
+        if store.update_job(
             job_id,
             status="cancelled",
             expected_statuses=("queued", "running"),
-        )
-        store.append_event(job_id, "cancelled")
-        audit.job_cancelled(job_id, runtime=job.runtime)
+        ):
+            store.append_event(job_id, "cancelled")
+            audit.job_cancelled(job_id, runtime=job.runtime)
         raise
     except CodingRuntimeError as exc:
         _fail_job(job_id, job, str(exc), events=exc.events)
@@ -258,15 +266,14 @@ async def _execute_job(
     finally:
         _JOB_RUNTIMES.pop(job_id, None)
 
-    if not _still_active(job_id):
-        return
-    store.update_job(
+    if not store.update_job(
         job_id,
         status="succeeded",
         artifact=artifact,
         events=events,
         expected_statuses=("queued", "running"),
-    )
+    ):
+        return
     audit.job_completed(job_id, runtime=job.runtime, workspace_id=job.workspace_id)
     _notify_job_completion(job_id)
 
@@ -278,15 +285,14 @@ def _fail_job(
     *,
     events: list[str] | None = None,
 ) -> None:
-    if not _still_active(job_id):
-        return
-    store.update_job(
+    if not store.update_job(
         job_id,
         status="failed",
         error=error,
         events=events,
         expected_statuses=("queued", "running"),
-    )
+    ):
+        return
     audit.job_failed(job_id, error=error, runtime=job.runtime)
     _notify_job_completion(job_id)
 
@@ -323,7 +329,7 @@ def _emit_job_completion_alert(job_id: str) -> None:
         severity = AlertSeverity.MEDIUM
         suggested_action = "A coding analysis job finished. Review the result when you can."
     else:
-        detail = str(row.get("error") or row.get("artifact") or "").strip() or ("(no error text)")
+        detail = _PRINCIPAL_ERROR_DETAIL.get(status, _PRINCIPAL_ERROR_DETAIL["failed"])
         severity = AlertSeverity.HIGH
         suggested_action = "A coding analysis job did not finish successfully."
     if len(detail) > _ALERT_BODY_MAX:
@@ -377,29 +383,35 @@ async def list_jobs(
 
 
 async def cancel_job(job_id: str) -> dict[str, Any]:
+    """Cancel a queued or running job. Does not create a /today card.
+
+    Compare-and-swap to ``cancelled`` is the claim; abort only after a
+    successful write so a kill-as-failure cannot persist ``failed`` and
+    notify. A lost CAS returns ``not_running`` without extra events/audit.
+    """
     if not job_id:
         return _error("job_id is required.", "invalid_input")
     row = store.get_job(job_id)
     if row is None:
         return _error("Unknown job.", "unknown_job")
-    if row["status"] not in {"queued", "running"}:
-        return _error(
-            f"Job is already {row['status']}.",
-            "not_running",
-            job=_truncate_for_tool(row),
-        )
-    runner = _JOB_RUNTIMES.get(job_id)
-    spawned = _JOB_TASKS.get(job_id)
-    if spawned is not None and not spawned.done():
-        spawned.cancel()
-    if runner is not None:
-        await _safe_abort(runner)
-    store.update_job(
+    claimed = store.update_job(
         job_id,
         status="cancelled",
         expected_statuses=("queued", "running"),
     )
+    if not claimed:
+        updated = store.get_job(job_id) or row
+        return _error(
+            f"Job is already {updated['status']}.",
+            "not_running",
+            job=_truncate_for_tool(updated),
+        )
+    spawned = _JOB_TASKS.get(job_id)
+    if spawned is not None and not spawned.done():
+        spawned.cancel()
+    runner = _JOB_RUNTIMES.get(job_id)
+    if runner is not None:
+        await _safe_abort(runner)
     store.append_event(job_id, "cancelled")
     audit.job_cancelled(job_id, runtime=row.get("runtime"))
-    updated = store.get_job(job_id) or row
-    return _truncate_for_tool(updated)
+    return _truncate_for_tool(store.get_job(job_id) or row)

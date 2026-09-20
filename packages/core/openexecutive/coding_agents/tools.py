@@ -22,7 +22,7 @@ Handler = Callable[[dict[str, Any]], Awaitable[str]]
 START_CODING_JOB_TOOL: dict[str, Any] = {
     "name": "start_coding_job",
     "description": (
-        "Start a long-running implementation or analysis job against one "
+        "Start a long-running analysis or planning job against one "
         "allowlisted repository. Use this only when the principal wants code "
         "read, explained, or planned in a known workspace — never for general "
         "business questions. "

@@ -165,6 +165,13 @@ class OpenCodeRuntime:
                 session_id = await self._create_session(job, workspace)
             except asyncio.CancelledError:
                 raise
+            except httpx.ConnectTimeout as exc:
+                raise _HttpWorkspaceBindError(
+                    f"OpenCode serve could not bind workspace: {exc.__class__.__name__}"
+                ) from exc
+            except httpx.TimeoutException:
+                # Read/write hang after reaching serve is a job timeout, not a bind miss.
+                raise
             except (httpx.HTTPError, _HttpWorkspaceBindError, CodingRuntimeError) as exc:
                 raise _HttpWorkspaceBindError(
                     f"OpenCode serve could not bind workspace: {exc.__class__.__name__}"
@@ -176,10 +183,12 @@ class OpenCodeRuntime:
             raise
         except _HttpWorkspaceBindError:
             raise
+        except httpx.TimeoutException as exc:
+            raise TimeoutError("coding runtime HTTP request timed out") from exc
         except httpx.HTTPError as exc:
             # httpx may stringify the URL; never include auth material.
             raise CodingRuntimeError(
-                f"OpenCode serve request failed: {exc.__class__.__name__}",
+                f"coding runtime HTTP request failed: {exc.__class__.__name__}",
                 events=events,
             ) from exc
         finally:
@@ -191,7 +200,11 @@ class OpenCodeRuntime:
         directory = _workspace_directory(workspace)
         response = await self._client.post(
             f"{self.serve_url}/session",
-            json={"title": f"oe-{job.job_id}", "directory": directory},
+            json={
+                "title": f"oe-{job.job_id}",
+                "directory": directory,
+                "agent": _READONLY_AGENT,
+            },
             **_directory_http_kwargs(directory),
         )
         response.raise_for_status()
@@ -227,9 +240,9 @@ def _json_object(response: httpx.Response) -> dict[str, Any]:
     try:
         payload = response.json()
     except ValueError as exc:
-        raise CodingRuntimeError("OpenCode serve returned non-JSON") from exc
+        raise CodingRuntimeError("coding runtime returned non-JSON") from exc
     if not isinstance(payload, dict):
-        raise CodingRuntimeError("OpenCode serve returned a non-object JSON body")
+        raise CodingRuntimeError("coding runtime returned a non-object JSON body")
     return payload
 
 

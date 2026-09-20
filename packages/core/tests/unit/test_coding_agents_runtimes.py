@@ -195,11 +195,180 @@ async def test_opencode_http_posts_session_then_message(
     assert posts[0][3] == {"x-opencode-directory": str(tmp_path)}
     assert posts[1][0] == "http://127.0.0.1:4096/session/ses_1/message"
     assert posts[1][1] is not None
+    assert set(posts[0][1]) == {"title", "directory", "agent"}
+    assert posts[0][1]["agent"] == "plan"
     assert posts[1][1]["parts"][0]["text"] == "explain src/main.py"
+    assert posts[1][1]["agent"] == "plan"
     assert posts[1][2] == {"directory": str(tmp_path)}
     assert posts[1][3] == {"x-opencode-directory": str(tmp_path)}
     assert any("session=ses_1" in item for item in events)
     assert captured["auth"] is None
+
+
+@pytest.mark.asyncio
+async def test_opencode_http_message_timeout_raises_timeout_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _SessionResp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"id": "ses_1"}
+
+    class _Client:
+        def __init__(self, *a: object, **kwargs: object) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, Any] | None = None, **_k: Any) -> Any:
+            if url.endswith("/session"):
+                return _SessionResp()
+            raise httpx.TimeoutException("timed out")
+
+        async def aclose(self) -> None:
+            return None
+
+    called_cli = {"n": 0}
+
+    async def fake_exec(*args: str, **kwargs: Any) -> MagicMock:
+        called_cli["n"] += 1
+        raise AssertionError("CLI must not run after an HTTP timeout")
+
+    monkeypatch.setattr("openexecutive.coding_agents.opencode.httpx.AsyncClient", _Client)
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.opencode.asyncio.create_subprocess_exec",
+        fake_exec,
+    )
+    workspace = WorkspaceSpec(id="product", path=tmp_path, default_runtime="opencode")
+    with pytest.raises(TimeoutError, match="HTTP request timed out"):
+        await OpenCodeRuntime("opencode", serve_url="http://127.0.0.1:4096").run(
+            _job(), workspace
+        )
+    assert called_cli["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_opencode_http_session_timeout_raises_timeout_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Client:
+        def __init__(self, *a: object, **kwargs: object) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, Any] | None = None, **_k: Any) -> Any:
+            raise httpx.TimeoutException("timed out")
+
+        async def aclose(self) -> None:
+            return None
+
+    called_cli = {"n": 0}
+
+    async def fake_exec(*args: str, **kwargs: Any) -> MagicMock:
+        called_cli["n"] += 1
+        raise AssertionError("CLI must not run after a session timeout")
+
+    monkeypatch.setattr("openexecutive.coding_agents.opencode.httpx.AsyncClient", _Client)
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.opencode.asyncio.create_subprocess_exec",
+        fake_exec,
+    )
+    workspace = WorkspaceSpec(id="product", path=tmp_path, default_runtime="opencode")
+    with pytest.raises(TimeoutError, match="HTTP request timed out"):
+        await OpenCodeRuntime("opencode", serve_url="http://127.0.0.1:4096").run(
+            _job(), workspace
+        )
+    assert called_cli["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_opencode_http_session_status_error_falls_back_to_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Resp:
+        def raise_for_status(self) -> None:
+            request = httpx.Request("POST", "http://127.0.0.1:4096/session")
+            response = httpx.Response(400, request=request)
+            raise httpx.HTTPStatusError(
+                "Client error '400 Bad Request' for url 'http://127.0.0.1:4096/session'",
+                request=request,
+                response=response,
+            )
+
+        def json(self) -> dict[str, Any]:
+            return {}
+
+    class _Client:
+        def __init__(self, *a: object, **kwargs: object) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, Any] | None = None, **_k: Any) -> _Resp:
+            return _Resp()
+
+        async def aclose(self) -> None:
+            return None
+
+    proc = MagicMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b'{"result":"from-cli"}', b""))
+    captured: dict[str, Any] = {}
+
+    async def fake_exec(*args: str, **kwargs: Any) -> MagicMock:
+        captured["argv"] = args
+        return proc
+
+    monkeypatch.setattr("openexecutive.coding_agents.opencode.httpx.AsyncClient", _Client)
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.opencode.asyncio.create_subprocess_exec",
+        fake_exec,
+    )
+    workspace = WorkspaceSpec(id="product", path=tmp_path, default_runtime="opencode")
+    artifact, _events = await OpenCodeRuntime("opencode", serve_url="http://127.0.0.1:4096").run(
+        _job("plan"), workspace
+    )
+    assert artifact == "from-cli"
+    assert "--agent" in captured["argv"]
+    assert "plan" in captured["argv"]
+    assert "--dir" in captured["argv"]
+
+
+@pytest.mark.asyncio
+async def test_opencode_http_session_connect_timeout_falls_back_to_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Client:
+        def __init__(self, *a: object, **kwargs: object) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, Any] | None = None, **_k: Any) -> Any:
+            raise httpx.ConnectTimeout(
+                "connect timed out",
+                request=httpx.Request("POST", url),
+            )
+
+        async def aclose(self) -> None:
+            return None
+
+    proc = MagicMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b'{"result":"from-cli"}', b""))
+    captured: dict[str, Any] = {}
+
+    async def fake_exec(*args: str, **kwargs: Any) -> MagicMock:
+        captured["argv"] = args
+        return proc
+
+    monkeypatch.setattr("openexecutive.coding_agents.opencode.httpx.AsyncClient", _Client)
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.opencode.asyncio.create_subprocess_exec",
+        fake_exec,
+    )
+    workspace = WorkspaceSpec(id="product", path=tmp_path, default_runtime="opencode")
+    artifact, _events = await OpenCodeRuntime("opencode", serve_url="http://127.0.0.1:4096").run(
+        _job("plan"), workspace
+    )
+    assert artifact == "from-cli"
+    assert "--agent" in captured["argv"]
+    assert "plan" in captured["argv"]
 
 
 @pytest.mark.asyncio
@@ -363,7 +532,7 @@ async def test_opencode_http_message_error_does_not_fall_back_to_cli(
         fake_exec,
     )
     workspace = WorkspaceSpec(id="product", path=tmp_path, default_runtime="opencode")
-    with pytest.raises(CodingRuntimeError, match="serve request failed"):
+    with pytest.raises(CodingRuntimeError, match="HTTP request failed"):
         await OpenCodeRuntime("opencode", serve_url="http://127.0.0.1:4096").run(_job(), workspace)
     assert called_cli["n"] == 0
 

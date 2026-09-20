@@ -4024,9 +4024,13 @@ coding_agents:
     via the same path as draft_artifact: source="artifact",
     topic_tags=["artifact"], routed to the principal → /today "Needs you".
     No DM. cancelled does not notify. Card copy includes job_id, workspace
-    slug, status, and artifact or error text; it must not name Cursor or
-    OpenCode. Notify runs after the store update in _execute_job; a notify
-    failure is logged and must not rewrite the job row.
+    slug, and status. Success cards include the artifact. Failure/timeout
+    cards use fixed one-voice sentences (never runtime stderr, never Cursor
+    or OpenCode names); operators inspect GET /coding-jobs for the log.
+    Notify runs after the store update in _execute_job; a notify
+    failure is logged and must not rewrite the job row. Cancel claims
+    cancelled via compare-and-swap *before* abort so kill-as-failure cannot
+    persist failed and notify.
   tools_and_cache: |
     cancel_coding_job, get_coding_job, start_coding_job are always registered
     on the Executive tool list (sorted by name) for Anthropic cache stability
@@ -4041,10 +4045,15 @@ coding_agents:
   opencode_http_bind: |
     OpenCode HTTP is preferred when serve_url is set. Session create must
     include WorkspaceSpec.path as directory (JSON body; also query
-    ?directory= and x-opencode-directory for current serve routing). If
-    serve cannot bind that directory, fail closed to CLI `opencode run --dir`
-    — never execute against the serve process cwd. The model still only
-    sees workspace_id, never the filesystem path.
+    ?directory= and x-opencode-directory for current serve routing) and
+    agent=plan on both POST /session and POST .../message (CLI already
+    passes --agent plan). If serve cannot bind that directory (connect
+    error, connect timeout, HTTP 4xx/5xx on session create, or a returned
+    directory that does not match the allowlist), fail closed to CLI
+    `opencode run --dir` — never execute against the serve process cwd.
+    HTTP read timeouts after serve is reached fail the job as timed_out
+    rather than falling back. The model still only sees workspace_id,
+    never the filesystem path.
   http: |
     REST inspect/cancel (same shared-secret gate, x-api-key or Bearer):
     GET /coding-jobs (list; status?, limit 1–500), GET /coding-jobs/{job_id}

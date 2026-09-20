@@ -321,11 +321,16 @@ async def test_failure_creates_artifact_alert(
     started = await service.start_job("product", "summarize", "ask")
     row = await _wait_terminal(started["job_id"])
     assert row["status"] == "failed"
+    assert "runtime exploded" in (row["error"] or "")
     cards = _artifact_alerts()
     assert len(cards) == 1
     assert started["job_id"] in cards[0].body
     assert "failed" in cards[0].body
-    assert "runtime exploded" in cards[0].body
+    assert "runtime exploded" not in cards[0].body
+    assert "The analysis job did not finish successfully." in cards[0].body
+    joined = f"{cards[0].headline}\n{cards[0].body}\n{cards[0].suggested_action}".lower()
+    assert "cursor" not in joined
+    assert "opencode" not in joined
     assert cards[0].severity == "high"
 
 
@@ -346,6 +351,38 @@ async def test_timeout_creates_artifact_alert(
     assert len(cards) == 1
     assert "timed_out" in cards[0].body
     assert started["job_id"] in cards[0].body
+    assert "The analysis job exceeded its time limit." in cards[0].body
+    joined = f"{cards[0].headline}\n{cards[0].body}\n{cards[0].suggested_action}".lower()
+    assert "cursor" not in joined
+    assert "opencode" not in joined
+
+
+@pytest.mark.asyncio
+async def test_runtime_timeout_error_marks_timed_out(
+    settings: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _HttpTimeout:
+        async def run(self, job: Any, workspace: Any) -> tuple[str, list[str]]:
+            raise TimeoutError("coding runtime HTTP request timed out")
+
+        async def abort(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.service.get_runtime",
+        lambda *a, **k: _HttpTimeout(),
+    )
+    started = await service.start_job("product", "slow", "ask")
+    row = await _wait_terminal(started["job_id"])
+    assert row["status"] == "timed_out"
+    assert row["error"] == "coding runtime HTTP request timed out"
+    cards = _artifact_alerts()
+    assert len(cards) == 1
+    assert "The analysis job exceeded its time limit." in cards[0].body
+    assert "HTTP request timed out" not in cards[0].body
+    joined = f"{cards[0].headline}\n{cards[0].body}\n{cards[0].suggested_action}".lower()
+    assert "cursor" not in joined
+    assert "opencode" not in joined
 
 
 @pytest.mark.asyncio
@@ -365,6 +402,46 @@ async def test_cancel_does_not_create_artifact_alert(
     if spawned is not None:
         with pytest.raises(asyncio.CancelledError):
             await spawned
+    assert _artifact_alerts() == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_wins_kill_as_failure_without_alert(
+    settings: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Abort that surfaces as a runtime error must not overwrite cancelled."""
+
+    class _KillAsFailure:
+        def __init__(self) -> None:
+            self.started = asyncio.Event()
+            self._aborting = asyncio.Event()
+
+        async def run(self, job: Any, workspace: Any) -> tuple[str, list[str]]:
+            self.started.set()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._aborting.wait()
+            await asyncio.sleep(0.05)
+            raise CodingRuntimeError("coding runtime exited -9", events=["killed"])
+
+        async def abort(self) -> None:
+            self._aborting.set()
+            await asyncio.sleep(0.05)
+
+    killer = _KillAsFailure()
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.service.get_runtime",
+        lambda *a, **k: killer,
+    )
+    started = await service.start_job("product", "long job", "ask")
+    await killer.started.wait()
+    cancelled = await service.cancel_job(started["job_id"])
+    assert cancelled["status"] == "cancelled"
+    spawned = service.job_tasks().get(started["job_id"])
+    if spawned is not None:
+        with contextlib.suppress(asyncio.CancelledError, CodingRuntimeError):
+            await spawned
+    row = await service.get_job(started["job_id"])
+    assert row["status"] == "cancelled"
     assert _artifact_alerts() == []
 
 

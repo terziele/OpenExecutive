@@ -47,6 +47,8 @@ def test_descriptions_forbid_vendor_names_in_user_text() -> None:
     )
     assert "workspace_id" in start_desc
     assert "filesystem path" in start_desc.lower() or "not a filesystem path" in start_desc.lower()
+    assert "implementation" not in start_desc.lower()
+    assert "analysis or planning" in start_desc.lower()
 
 
 @pytest.mark.asyncio
