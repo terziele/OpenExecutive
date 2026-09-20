@@ -220,7 +220,8 @@ def test_mcp_endpoint_is_gated_by_shared_secret(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """With BACKEND_SHARED_SECRET set, /mcp returns 401 without the header and
-    passes the gate (no 401) with it. Routing only — lifespan is not run."""
+    passes the gate (no 401) with ``x-api-key`` or ``Authorization: Bearer``.
+    Routing only — lifespan is not run."""
     from openexecutive.api.main import create_app
 
     monkeypatch.setenv("BACKEND_SHARED_SECRET", "testsecret")
@@ -241,3 +242,19 @@ def test_mcp_endpoint_is_gated_by_shared_secret(
         follow_redirects=False,
     )
     assert with_key.status_code != 401
+
+    with_bearer = client.post(
+        "/mcp",
+        json=body,
+        headers={**headers, "Authorization": "Bearer testsecret"},
+        follow_redirects=False,
+    )
+    assert with_bearer.status_code != 401
+
+    with_lowercase_scheme = client.post(
+        "/mcp",
+        json=body,
+        headers={**headers, "Authorization": "bearer testsecret"},
+        follow_redirects=False,
+    )
+    assert with_lowercase_scheme.status_code != 401

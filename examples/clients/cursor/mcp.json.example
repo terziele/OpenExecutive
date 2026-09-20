@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "open-executive": {
+      "url": "http://localhost:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer ${env:BACKEND_SHARED_SECRET}"
+      }
+    }
+  }
+}

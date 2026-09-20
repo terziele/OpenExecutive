@@ -1,0 +1,12 @@
+runtimes:
+  cursor:
+    enabled: true
+    binary: agent   # cursor-agent still works if that's on PATH
+  opencode:
+    enabled: true
+    binary: opencode
+    serve_url: ""  # e.g. http://127.0.0.1:4096
+workspaces:
+  - id: product
+    path: /repos/product   # operator-controlled; never from the model
+    default_runtime: cursor

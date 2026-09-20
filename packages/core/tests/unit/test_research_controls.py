@@ -76,6 +76,10 @@ def test_routing_pass_cannot_start_a_workflow() -> None:
     assert "run_executive_research" in er._SYNTHESIS_EXCLUDED_TOOLS
     # Suggesting one for a human to start is still allowed.
     assert "suggest_workflow" not in er._SYNTHESIS_EXCLUDED_TOOLS
+    # Coding jobs are side-effecting; synthesis must not spawn or poll them.
+    assert "start_coding_job" in er._SYNTHESIS_EXCLUDED_TOOLS
+    assert "cancel_coding_job" in er._SYNTHESIS_EXCLUDED_TOOLS
+    assert "get_coding_job" in er._SYNTHESIS_EXCLUDED_TOOLS
 
 
 def test_env_example_documents_the_controls() -> None:

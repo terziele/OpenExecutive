@@ -23,6 +23,7 @@ from openexecutive.api.routes import (
     audit,
     chat,
     clients,
+    coding_jobs,
     company_profile,
     decisions,
     departments,
@@ -47,6 +48,7 @@ from openexecutive.api.routes import (
 from openexecutive.api.routes import (
     auth as auth_route,
 )
+from openexecutive.coding_agents import initialize_coding_jobs_db
 from openexecutive.integrations.google_chat import router as google_chat_router
 from openexecutive.integrations.telegram_bot import router as telegram_router
 
@@ -145,6 +147,44 @@ _configure_logging()
 _UNAUTHENTICATED_PATHS: frozenset[str] = frozenset(
     {"/health", "/webhook/telegram", "/webhook/google-chat"}
 )
+
+
+def _secrets_equal(left: str, right: str) -> bool:
+    """Constant-time equality that is False (never raises) on a mismatch.
+
+    ``hmac.compare_digest`` requires equal-length ASCII strings; a
+    different-length or non-ASCII header must 401, not 500.
+    """
+    if len(left) != len(right):
+        return False
+    try:
+        return hmac.compare_digest(left, right)
+    except (TypeError, ValueError):
+        return False
+
+
+def _extract_presented_secret(request: Request) -> str | None:
+    """Return the shared secret the client presented, or None if missing/ambiguous.
+
+    Reads ``x-api-key`` and ``Authorization: Bearer …`` (scheme match is
+    case-insensitive). If both are non-empty they must be identical;
+    a mismatch is treated as missing so neither header is preferred.
+    """
+    api_key = (request.headers.get("x-api-key") or "").strip()
+    authorization = (request.headers.get("Authorization") or "").strip()
+    bearer = ""
+    if authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+
+    if api_key and bearer:
+        if not _secrets_equal(api_key, bearer):
+            return None
+        return api_key
+    if api_key:
+        return api_key
+    if bearer:
+        return bearer
+    return None
 
 
 # How long the MCP gateway gets to come up. The child is
@@ -501,6 +541,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from openexecutive.workflows.persistence import initialize_runs_db
 
     initialize_runs_db()
+    try:
+        initialize_coding_jobs_db()
+    except Exception:
+        # Optional subsystem: a locked or unwritable episodic DB must not
+        # kill the API (same invariant as MCP boot failures).
+        logging.getLogger("openexecutive").exception(
+            "coding_jobs db init failed; continuing"
+        )
     initialize_dynamic_workflows_db()
     initialize_eval_runs_db()
     initialize_user_scenarios_db()
@@ -778,10 +826,11 @@ def create_app() -> FastAPI:
     )
 
     # Shared-secret gate. If BACKEND_SHARED_SECRET is set, every non-exempt
-    # request must include a matching x-api-key header. If unset, the gate is
-    # off (intended for local dev only — production deploys MUST set it).
-    # Fail closed on any internet-reachable instance: set OE_PUBLIC_DEPLOYMENT=1
-    # there, and a missing secret becomes a boot failure rather than a warning.
+    # request must present a matching secret via x-api-key or
+    # Authorization: Bearer. If unset, the gate is off (intended for local
+    # dev only — production deploys MUST set it). Fail closed on any
+    # internet-reachable instance: set OE_PUBLIC_DEPLOYMENT=1 there, and a
+    # missing secret becomes a boot failure rather than a warning.
     shared_secret = os.environ.get("BACKEND_SHARED_SECRET", "").strip()
     if not shared_secret and _is_public_deployment():
         raise RuntimeError(
@@ -793,8 +842,8 @@ def create_app() -> FastAPI:
         async def _shared_secret_gate(request: Request, call_next):  # type: ignore[no-untyped-def]
             if request.url.path in _UNAUTHENTICATED_PATHS or request.method == "OPTIONS":
                 return await call_next(request)
-            provided = request.headers.get("x-api-key", "")
-            if not provided or not hmac.compare_digest(provided, shared_secret):
+            presented = _extract_presented_secret(request)
+            if not presented or not _secrets_equal(presented, shared_secret):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
             return await call_next(request)
     else:
@@ -817,6 +866,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router, tags=["knowledge"])
     app.include_router(skills.router, tags=["skills"])
     app.include_router(workflows.router, tags=["workflows"])
+    app.include_router(coding_jobs.router, tags=["coding-jobs"])
     app.include_router(evals.router, tags=["evals"])
     app.include_router(episodic.router, tags=["memories"])
     app.include_router(review.router, tags=["review"])
@@ -837,8 +887,8 @@ def create_app() -> FastAPI:
 
     # Expose Open Executive as an MCP server at /mcp (Streamable-HTTP). Gated
     # by the same shared-secret middleware as every other route — clients pass
-    # x-api-key. Mounting also lazily creates mcp.session_manager, which the
-    # lifespan runs (see above).
+    # x-api-key or Authorization: Bearer. Mounting also lazily creates
+    # mcp.session_manager, which the lifespan runs (see above).
     mcp_server.mount(app)
 
     return app

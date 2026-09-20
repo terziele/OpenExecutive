@@ -97,7 +97,7 @@ openexecutive/
 ├── fixtures/                     # Demo company fixtures (profiles, docs, rosters)
 ├── scripts/                      # Operator scripts (Google auth)
 ├── docker/                       # Dockerfile(s) + docker-compose.yml
-└── docs/                         # Architecture + deployment docs
+└── docs/                         # architecture.md, deployment.md, [coding_agents.md](docs/coding_agents.md)
 ```
 
 ## Quick Start

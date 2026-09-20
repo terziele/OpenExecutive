@@ -660,6 +660,7 @@ sections_for() {
     orchestrator|agents|providers) echo "agents lifecycle review";;
     audit) echo audit;;
     monitoring) echo external_monitoring;;       mcp_server) echo mcp_server;;
+    coding_agents) echo coding_agents;;
     clients|fixtures) echo "clients peer_memory";;
     knowledge) echo rag;;                        briefing|alerts) echo today;;
     guide) echo user_guide;;                     *) echo "";;

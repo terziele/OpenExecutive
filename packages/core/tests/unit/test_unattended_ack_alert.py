@@ -33,6 +33,8 @@ def test_reflection_withholds_ack_alert() -> None:
     assert marker in src
     block = src[src.index(marker) : src.index("}", src.index(marker))]
     assert '"ack_alert"' in block
+    assert '"start_coding_job"' in block
+    assert '"cancel_coding_job"' in block
 
 
 def test_google_chat_session_declares_its_origin() -> None:

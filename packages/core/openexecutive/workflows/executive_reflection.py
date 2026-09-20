@@ -527,6 +527,10 @@ class ExecutiveReflectionWorkflow(Workflow):
             "send_discord_dm",
             "send_telegram_message",
             "ack_alert",
+            # Coding jobs spawn host subprocesses. Reflection is unattended;
+            # synthesis already withholds these (see _SYNTHESIS_EXCLUDED_TOOLS).
+            "start_coding_job",
+            "cancel_coding_job",
         }
         tools = sorted(
             (t for t in _ALL_SKILL_TOOLS if t["name"] not in _excluded_dm),

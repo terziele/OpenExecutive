@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from openexecutive.prompts.executive_persona import (
+    CODING_AGENT_ADDENDUM,
     EXECUTIVE_PERSONA_PROMPT,
     MCP_ADDENDUM,
     WEB_SEARCH_ADDENDUM,
@@ -19,6 +20,7 @@ _VOICE_PERSONA_PLACEHOLDER = "{VOICE_PERSONA}"
 def build_system_blocks(
     company_profile: CompanyProfile | None = None,
     mcp_enabled: bool = False,
+    coding_agents_enabled: bool = False,
     persona_override: str | None = None,
     voice_persona_body: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -30,6 +32,10 @@ def build_system_blocks(
       - Block 1: company profile + org/dept context (5m TTL, only if non-empty)
 
     RAG context is injected into the user turn, NOT here.
+
+    mcp_enabled / coding_agents_enabled append the matching persona addendum
+    constants. Both flags are process-stable; pass them from settings at the
+    call site rather than reading request-scoped data here.
 
     persona_override replaces EXECUTIVE_PERSONA_PROMPT when the Agent Council
     has a saved override for the "executive" agent_id.
@@ -92,6 +98,7 @@ def build_system_blocks(
         base_persona
         + (WEB_SEARCH_ADDENDUM if settings.enable_web_search else "")
         + (MCP_ADDENDUM if mcp_enabled else "")
+        + (CODING_AGENT_ADDENDUM if coding_agents_enabled else "")
         + identity_addendum
         + tz_addendum
     )

@@ -1,0 +1,15 @@
+id: coding_jobs_001
+domain: operations
+description: "Principal asks for a read-only analysis of an allowlisted repo; Executive starts a coding job with a workspace slug"
+# expected_tool_calls is documentary (same convention as department_goal_update_001
+# and mcp_tool_call_001). Tools stay registered even when coding agents are off;
+# the addendum is present only when enabled.
+query: "Look through the product workspace and explain how authentication works. Do not change any files — just report what you find."
+expected_tool_calls:
+  - start_coding_job
+quality_criteria:
+  calls_start_coding_job: true
+  workspace_id_is_slug_not_path: true
+  mode_is_ask_or_plan: true
+  does_not_name_cursor_or_opencode: true
+  does_not_block_waiting_for_the_job: true

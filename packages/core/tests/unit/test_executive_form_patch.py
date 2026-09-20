@@ -185,6 +185,7 @@ def test_tool_list_is_cache_stable_and_includes_form_tool() -> None:
 
     expected = sorted(t["name"] for t in [*SPECIALIST_TOOLS, *_ALL_SKILL_TOOLS])
     assert PROPOSE_FORM_VALUES in sent_names
+    assert {"cancel_coding_job", "get_coding_job", "start_coding_job"} <= set(sent_names)
     # Anthropic server-side tools (web_search) are appended AFTER the cached
     # client prefix — only the prefix participates in the cache key.
     assert sent_names[: len(expected)] == expected, (

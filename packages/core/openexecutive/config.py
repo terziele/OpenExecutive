@@ -483,6 +483,23 @@ class Settings(BaseSettings):
     # every load, so an env var for it would only ever be discarded.
     _mcp_enabled_explicit: bool = PrivateAttr(default=False)
 
+    # ---- Coding agents (Cursor CLI / OpenCode; ask/plan only) --------------
+    # Left unset, inferred from a non-empty coding_agents.yaml (see
+    # _resolve_coding_agents). Explicit CODING_AGENTS_ENABLED always wins.
+    # Missing or unreadable YAML never crashes Settings load.
+    coding_agents_enabled: bool = Field(False, alias="CODING_AGENTS_ENABLED")
+    coding_agents_config_path: Path = Field(
+        _ROOT / "company" / "coding_agents.yaml",
+        alias="CODING_AGENTS_CONFIG_PATH",
+    )
+    coding_max_concurrent: int = Field(1, alias="CODING_MAX_CONCURRENT", ge=1)
+    coding_job_timeout_s: int = Field(600, alias="CODING_JOB_TIMEOUT_S", ge=30)
+    coding_cursor_binary: str = Field("agent", alias="CODING_CURSOR_BINARY")
+    coding_opencode_binary: str = Field("opencode", alias="CODING_OPENCODE_BINARY")
+    # Empty = CLI `opencode run` fallback. e.g. http://127.0.0.1:4096
+    coding_opencode_serve_url: str = Field("", alias="CODING_OPENCODE_SERVE_URL")
+    _coding_agents_enabled_explicit: bool = PrivateAttr(default=False)
+
     # ---- Calendar booking (first-climb autonomy, Build 1) ------------------
     # When true, the `create_calendar_event` / `cancel_calendar_event` tools
     # are surfaced to the Executive and calendar operations route through the
@@ -838,6 +855,22 @@ class Settings(BaseSettings):
             self.mcp_enabled = True
         return self
 
+    @model_validator(mode="after")
+    def _resolve_coding_agents(self) -> "Settings":
+        if not self.coding_agents_config_path.is_absolute():
+            self.coding_agents_config_path = Path.cwd() / self.coding_agents_config_path
+        # Same trap as MCP (#122): read model_fields_set BEFORE assigning
+        # coding_agents_enabled — pydantic adds the field to that set on
+        # assignment, so an inferred True would look explicit on a later read.
+        self._coding_agents_enabled_explicit = (
+            "coding_agents_enabled" in self.model_fields_set
+        )
+        if not self._coding_agents_enabled_explicit and coding_agents_config_file_present(
+            self.coding_agents_config_path
+        ):
+            self.coding_agents_enabled = True
+        return self
+
     @property
     def mcp_auto_enabled(self) -> bool:
         """True when MCP is on ONLY because the config file exists.
@@ -848,6 +881,11 @@ class Settings(BaseSettings):
         and a read of this module.
         """
         return self.mcp_enabled and not self._mcp_enabled_explicit
+
+    @property
+    def coding_agents_auto_enabled(self) -> bool:
+        """True when coding agents are on ONLY because the YAML file exists."""
+        return self.coding_agents_enabled and not self._coding_agents_enabled_explicit
 
 
 def mcp_config_file_present(config_path: Path) -> bool:
@@ -866,6 +904,22 @@ def mcp_config_file_present(config_path: Path) -> bool:
     """
     try:
         return config_path.is_file()
+    except (OSError, ValueError):
+        return False
+
+
+def coding_agents_config_file_present(config_path: Path) -> bool:
+    """Whether `config_path` is a non-empty regular file, without ever raising.
+
+    Same fail-soft contract as ``mcp_config_file_present``: a stat error, a
+    directory, or an empty file counts as absent so Settings load cannot crash
+    (``api/main.py`` builds the app at import). Non-empty is required because
+    an operator touching an empty ``coding_agents.yaml`` is not consent.
+    """
+    try:
+        if not config_path.is_file():
+            return False
+        return config_path.stat().st_size > 0
     except (OSError, ValueError):
         return False
 

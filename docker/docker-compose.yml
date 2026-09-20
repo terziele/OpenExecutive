@@ -24,6 +24,20 @@ services:
       - VECTOR_STORE_PATH=/data/chroma_db
       - COMPANY_PROFILE_PATH=/data/company/profile.yaml
       - EPISODIC_DB_PATH=/data/episodic_memory.db
+    # Coding-agent jobs (Cursor CLI / OpenCode) need a host with git checkouts and
+    # runtime binaries — not this API container, which only persists /data (no repos).
+    # For production ask/plan jobs, run workers on bare metal or an optional sidecar
+    # with bind-mounted allowlisted paths + CURSOR_API_KEY / OpenCode auth; job rows
+    # still live in episodic_memory.db on /data here.
+    # Optional sketch (disabled — do not enable by default; would need ports/volumes):
+    # coding-worker:
+    #   build: { context: .., dockerfile: docker/Dockerfile }
+    #   profiles: ["coding"]
+    #   env_file: [{ path: ../.env, required: false }]
+    #   volumes:
+    #     - /path/on/host/to/your/repo:/workspaces/main-app:ro
+    #   environment:
+    #     - CODING_AGENTS_CONFIG_PATH=/workspaces/coding_agents.yaml
     volumes:
       - executive_data:/data
     healthcheck:

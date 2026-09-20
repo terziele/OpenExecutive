@@ -19,6 +19,7 @@ from openexecutive.audit.redaction import (
     audit_tool_result_full,
 )
 from openexecutive.audit.usage import log_model_usage
+from openexecutive.coding_agents import CODING_AGENT_HANDLERS, CODING_AGENT_TOOLS
 from openexecutive.config import get_settings
 from openexecutive.memory.honcho_client import ReasoningLevel as HonchoReasoningLevel
 from openexecutive.orchestrator.action_chips import summarize_action
@@ -305,6 +306,11 @@ def _build_current_speaker_block(person_id: int | None) -> str | None:
     )
 
 
+# Always-present tools. A conditionally-present tool poisons the prompt
+# cache across turns (see form_tools). coding_agents_enabled is
+# process-stable, but these stay in the list even when disabled — the
+# service handlers return {"error":...,"code":"disabled"} instead of
+# disappearing from the cached tools block.
 _ALL_SKILL_TOOLS = [
     *SKILL_TOOLS,
     CREATE_ALERT_TOOL,
@@ -319,6 +325,7 @@ _ALL_SKILL_TOOLS = [
     *WORKFLOW_AUTHORING_TOOLS,
     *WORKFLOW_RUN_TOOLS,
     *FORM_TOOLS,
+    *CODING_AGENT_TOOLS,
 ]
 _ALL_SKILL_HANDLERS = {
     **SKILL_TOOL_HANDLERS,
@@ -334,6 +341,7 @@ _ALL_SKILL_HANDLERS = {
     **WORKFLOW_AUTHORING_TOOL_HANDLERS,
     **WORKFLOW_RUN_TOOL_HANDLERS,
     **FORM_TOOL_HANDLERS,
+    **CODING_AGENT_HANDLERS,
 }
 
 
@@ -678,6 +686,7 @@ class Executive:
         system_blocks = build_system_blocks(
             session.company_profile,
             mcp_enabled=self._mcp_gateway is not None,
+            coding_agents_enabled=self._settings.coding_agents_enabled,
             persona_override=persona_override,
             voice_persona_body=voice_persona_body,
         )
@@ -899,6 +908,7 @@ class Executive:
         system_blocks = build_system_blocks(
             session.company_profile,
             mcp_enabled=self._mcp_gateway is not None,
+            coding_agents_enabled=self._settings.coding_agents_enabled,
             persona_override=persona_override,
             voice_persona_body=voice_persona_body,
         )

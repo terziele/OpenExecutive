@@ -55,6 +55,9 @@ SIDE_EFFECTING_TOOLS: frozenset[str] = frozenset({
     "ack_alert",
     # Universal workflow launcher (any built-in / custom workflow from chat)
     "run_workflow",
+    # Coding-agent jobs (ask/plan). get_coding_job is read-only.
+    "start_coding_job",
+    "cancel_coding_job",
     # Research artifacts flagged for review
     "draft_artifact",
     # MCP — generic, classified by underlying tool name at runtime
@@ -316,6 +319,18 @@ def summarize_action(
         payload["target"] = tool_input.get("workflow") or None
         if isinstance(run_id, str) and run_id:
             payload["link"] = f"/jobs/runs/{run_id}"
+    elif tool_name == "start_coding_job":
+        slug = str(tool_input.get("workspace_id") or "")
+        payload["summary"] = (
+            f"Started coding analysis on {slug}" if slug else "Started coding analysis"
+        )
+        payload["target"] = slug or None
+    elif tool_name == "cancel_coding_job":
+        job_id = str(tool_input.get("job_id") or "")
+        payload["summary"] = (
+            f"Cancelled coding analysis {job_id}" if job_id else "Cancelled coding analysis"
+        )
+        payload["target"] = job_id or None
     else:
         # Tool is in SIDE_EFFECTING_TOOLS but we have no specific summarizer.
         # Keep the generic fallback so the chip still renders.

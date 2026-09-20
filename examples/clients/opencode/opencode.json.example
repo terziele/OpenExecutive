@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "open-executive": {
+      "type": "remote",
+      "url": "http://localhost:8000/mcp",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:BACKEND_SHARED_SECRET}"
+      }
+    }
+  }
+}

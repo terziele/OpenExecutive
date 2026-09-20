@@ -568,4 +568,5 @@ def test_routing_pass_has_no_watchlist_write_tools() -> None:
 
     tools = {t["name"] for t in _ALL_SKILL_TOOLS if t["name"] not in _SYNTHESIS_EXCLUDED_TOOLS}
     assert not tools & {"add_watchlist_entry", "tune_watchlist_entry", "remove_watchlist_entry"}
+    assert not tools & {"start_coding_job", "cancel_coding_job", "get_coding_job"}
     assert "add_watchlist_entry" not in _build_synthesis_system({"slack"})

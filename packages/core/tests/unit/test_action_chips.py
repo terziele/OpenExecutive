@@ -177,6 +177,30 @@ def test_run_workflow_chip_suppressed_on_error() -> None:
     assert chip is None
 
 
+def test_start_coding_job_chip_uses_workspace_slug() -> None:
+    chip = summarize_action(
+        tool_name="start_coding_job",
+        tool_input={"workspace_id": "product", "task": "explain auth", "mode": "ask"},
+        tool_result=json.dumps({"job_id": "abc", "status": "queued"}),
+    )
+    assert chip is not None
+    assert chip["summary"] == "Started coding analysis on product"
+    assert chip["target"] == "product"
+    assert "cursor" not in chip["summary"].lower()
+    assert "opencode" not in chip["summary"].lower()
+
+
+def test_cancel_coding_job_chip() -> None:
+    chip = summarize_action(
+        tool_name="cancel_coding_job",
+        tool_input={"job_id": "job123"},
+        tool_result=json.dumps({"job_id": "job123", "status": "cancelled"}),
+    )
+    assert chip is not None
+    assert chip["summary"] == "Cancelled coding analysis job123"
+    assert chip["target"] == "job123"
+
+
 def test_create_alert_chip() -> None:
     chip = summarize_action(
         tool_name="create_alert",
@@ -300,6 +324,8 @@ _KNOWN_READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "search_tools",
     # workflow_run_tools — catalog read (run_workflow is in SIDE_EFFECTING_TOOLS)
     "list_workflows",
+    # coding_agents — poll/inspect (start/cancel are side-effecting)
+    "get_coding_job",
 })
 
 
@@ -309,6 +335,7 @@ def _all_registered_tool_names() -> set[str]:
     Kept here as a helper so both drift tests use the exact same source
     of truth — drift between them would defeat the guard.
     """
+    from openexecutive.coding_agents import CODING_AGENT_HANDLERS
     from openexecutive.orchestrator.artifact_tools import DRAFT_ARTIFACT_TOOL_HANDLERS
     from openexecutive.orchestrator.broadcast_tools import BROADCAST_TOOL_HANDLERS
     from openexecutive.orchestrator.department_tools import DEPARTMENT_TOOL_HANDLERS
@@ -327,6 +354,7 @@ def _all_registered_tool_names() -> set[str]:
         | set(DRAFT_ARTIFACT_TOOL_HANDLERS)
         | set(MCP_TOOL_NAMES)
         | set(WORKFLOW_RUN_TOOL_HANDLERS)
+        | set(CODING_AGENT_HANDLERS)
         # `create_alert` is in chat module rather than a HANDLERS dict.
         | {"create_alert"}
     )
