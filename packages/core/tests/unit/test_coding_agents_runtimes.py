@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
+from openexecutive.coding_agents import opencode as opencode_mod
 from openexecutive.coding_agents.cursor_cli import CursorCliRuntime, build_cursor_argv
 from openexecutive.coding_agents.models import CodingJob, WorkspaceSpec
 from openexecutive.coding_agents.opencode import (
@@ -172,7 +173,7 @@ async def test_opencode_http_posts_session_then_message(
         async def post(self, url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> _Resp:
             posts.append((url, json, kwargs.get("params"), kwargs.get("headers")))
             if url.endswith("/session"):
-                return _Resp({"id": "ses_1"})
+                return _Resp({"id": "ses_1", "directory": str(tmp_path)})
             return _Resp({"parts": [{"type": "text", "text": "the plan"}]})
 
         async def aclose(self) -> None:
@@ -214,7 +215,7 @@ async def test_opencode_http_message_timeout_raises_timeout_error(
             return None
 
         def json(self) -> dict[str, Any]:
-            return {"id": "ses_1"}
+            return {"id": "ses_1", "directory": str(tmp_path)}
 
     class _Client:
         def __init__(self, *a: object, **kwargs: object) -> None:
@@ -332,6 +333,66 @@ async def test_opencode_http_session_status_error_falls_back_to_cli(
 
 
 @pytest.mark.asyncio
+async def test_opencode_http_fallback_log_omits_url_userinfo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Resp:
+        def raise_for_status(self) -> None:
+            request = httpx.Request("POST", "http://oe:hunter2@127.0.0.1:4096/session")
+            response = httpx.Response(400, request=request)
+            raise httpx.HTTPStatusError(
+                "Client error '400 Bad Request' for url 'http://oe:hunter2@127.0.0.1:4096/session'",
+                request=request,
+                response=response,
+            )
+
+        def json(self) -> dict[str, Any]:
+            return {}
+
+    class _Client:
+        def __init__(self, *a: object, **kwargs: object) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, Any] | None = None, **_k: Any) -> _Resp:
+            return _Resp()
+
+        async def aclose(self) -> None:
+            return None
+
+    proc = MagicMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b'{"result":"from-cli"}', b""))
+
+    async def fake_exec(*args: str, **kwargs: Any) -> MagicMock:
+        return proc
+
+    monkeypatch.setattr("openexecutive.coding_agents.opencode.httpx.AsyncClient", _Client)
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.opencode.asyncio.create_subprocess_exec",
+        fake_exec,
+    )
+    # Patch the module logger: `api.main._configure_logging` (imported by
+    # earlier tests in the full suite) sets propagate=False on `openexecutive`,
+    # so caplog on the root logger misses this warning.
+    warnings: list[str] = []
+    monkeypatch.setattr(
+        opencode_mod.logger,
+        "warning",
+        lambda msg, *a, **k: warnings.append(msg % a if a else str(msg)),
+    )
+    workspace = WorkspaceSpec(id="product", path=tmp_path, default_runtime="opencode")
+    artifact, _events = await OpenCodeRuntime(
+        "opencode", serve_url="http://oe:hunter2@127.0.0.1:4096"
+    ).run(_job("plan"), workspace)
+    assert artifact == "from-cli"
+    text = "\n".join(warnings)
+    assert "hunter2" not in text
+    assert "oe:hunter2" not in text
+    assert "falling back to CLI" in text
+    assert "HTTPStatusError" in text
+
+
+@pytest.mark.asyncio
 async def test_opencode_http_session_connect_timeout_falls_back_to_cli(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -383,7 +444,7 @@ async def test_opencode_http_uses_basic_auth_when_password_set(
             return None
 
         def json(self) -> dict[str, Any]:
-            return {"id": "ses_1"} if not captured.get("second") else {"text": "ok"}
+            return {"id": "ses_1", "directory": str(tmp_path)} if not captured.get("second") else {"text": "ok"}
 
     class _Client:
         def __init__(self, *a: object, **kwargs: object) -> None:
@@ -495,6 +556,68 @@ async def test_opencode_http_directory_mismatch_falls_back_to_cli(
 
 
 @pytest.mark.asyncio
+async def test_opencode_http_omitted_directory_falls_back_to_isolated_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-secret")
+    monkeypatch.setenv("BACKEND_SHARED_SECRET", "super-secret")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret")
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return {"id": "ses_1"}
+
+    class _Client:
+        def __init__(self, *a: object, **kwargs: object) -> None:
+            return None
+
+        async def post(self, url: str, json: dict[str, Any] | None = None, **_k: Any) -> _Resp:
+            return _Resp()
+
+        async def aclose(self) -> None:
+            return None
+
+    proc = MagicMock()
+    proc.returncode = 0
+    proc.communicate = AsyncMock(return_value=(b'{"result":"cli-omitted"}', b""))
+    captured: dict[str, Any] = {}
+
+    async def fake_exec(*args: str, **kwargs: Any) -> MagicMock:
+        captured["argv"] = args
+        captured["env"] = kwargs.get("env")
+        captured["cwd"] = kwargs.get("cwd")
+        return proc
+
+    monkeypatch.setattr("openexecutive.coding_agents.opencode.httpx.AsyncClient", _Client)
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.opencode.asyncio.create_subprocess_exec",
+        fake_exec,
+    )
+    workspace = WorkspaceSpec(id="product", path=tmp_path, default_runtime="opencode")
+    job = _job("plan")
+    job.runtime = "opencode"
+    artifact, _events = await OpenCodeRuntime("opencode", serve_url="http://127.0.0.1:4096").run(
+        job, workspace
+    )
+    assert artifact == "cli-omitted"
+    assert "--dir" in captured["argv"]
+    assert str(tmp_path) in captured["argv"]
+    assert "--agent" in captured["argv"]
+    assert "plan" in captured["argv"]
+    assert captured["cwd"] == str(tmp_path)
+    env = captured["env"]
+    assert env is not None
+    assert "BACKEND_SHARED_SECRET" not in env
+    assert "SLACK_BOT_TOKEN" not in env
+    assert "ANTHROPIC_API_KEY" not in env
+    assert "super-secret" not in env.values()
+    assert "xoxb-secret" not in env.values()
+
+
+@pytest.mark.asyncio
 async def test_opencode_http_message_error_does_not_fall_back_to_cli(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -503,7 +626,7 @@ async def test_opencode_http_message_error_does_not_fall_back_to_cli(
             return None
 
         def json(self) -> dict[str, Any]:
-            return {"id": "ses_1"}
+            return {"id": "ses_1", "directory": str(tmp_path)}
 
     class _Client:
         def __init__(self, *a: object, **kwargs: object) -> None:

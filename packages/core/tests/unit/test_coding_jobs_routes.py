@@ -72,6 +72,22 @@ def test_cancel_returns_job(client: TestClient, monkeypatch: pytest.MonkeyPatch)
     assert res.json()["status"] == "cancelled"
 
 
+def test_cancel_already_terminal_409(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_cancel(job_id: str) -> dict[str, Any]:
+        return {
+            "error": "Job is already succeeded.",
+            "code": "not_running",
+            "job": {"job_id": job_id, "status": "succeeded"},
+        }
+
+    monkeypatch.setattr(coding_jobs_route, "cancel_job", fake_cancel)
+    res = client.post("/coding-jobs/abc123/cancel")
+    assert res.status_code == 409
+    body = res.json()
+    assert body["detail"]["code"] == "not_running"
+    assert body["detail"]["job"]["status"] == "succeeded"
+
+
 def test_post_start_is_not_a_route(client: TestClient) -> None:
     res = client.post("/coding-jobs")
     assert res.status_code == 405

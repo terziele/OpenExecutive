@@ -1,14 +1,13 @@
 # Curated, hand-written facts about the Open Executive architecture.
 #
-# This file is the highest-trust source of truth fed into the LLM when
-# generating the /architecture page. It captures design intent and
-# invariants that are not derivable from a quick code skim — the *why*
-# behind the code. The page generator combines this with:
-#   - live introspection (agents, workflows, openapi)
-#   - repo code excerpts
-#   - retrieved KB chunks
-# A change to this file invalidates the cache and triggers regeneration
-# of every section on next view.
+# These are the authoritative notes you (or Claude Code) read when
+# re-authoring a section under architecture/prebuilt/<section_id>.json.
+# The /architecture page is served from those static JSON files; the
+# API (`api/routes/architecture.py`) only reads them. Nothing on that
+# path calls an LLM. This YAML is no longer fed to a runtime generator.
+#
+# A change here does not update the page until the matching
+# prebuilt/<id>.json is hand-edited in the same PR.
 
 system:
   name: Open Executive
@@ -4000,9 +3999,11 @@ coding_agents:
     SPECIALIST_REGISTRY — job tools live on the Executive like MCP gateway
     / workflow primitives.
   enablement: |
-    Inferred from a non-empty, valid `company/coding_agents.yaml` (same
-    pattern as MCP from `mcp_servers.json`). Explicit CODING_AGENTS_ENABLED
-    always wins. Template: packages/core/coding_agents.yaml.example.
+    Inferred from a non-empty `company/coding_agents.yaml` (size-only,
+    same pattern as MCP from `mcp_servers.json`). Invalid YAML still
+    auto-enables; start_job then returns config_unavailable. Explicit
+    CODING_AGENTS_ENABLED always wins. Template:
+    packages/core/coding_agents.yaml.example.
   allowlist: |
     Operator YAML maps workspace_id slugs to filesystem paths on the JOB
     HOST. The model supplies workspace_id only — never a path; validators
@@ -4048,8 +4049,9 @@ coding_agents:
     ?directory= and x-opencode-directory for current serve routing) and
     agent=plan on both POST /session and POST .../message (CLI already
     passes --agent plan). If serve cannot bind that directory (connect
-    error, connect timeout, HTTP 4xx/5xx on session create, or a returned
-    directory that does not match the allowlist), fail closed to CLI
+    error, connect timeout, HTTP 4xx/5xx on session create, a missing
+    directory echo, or a returned directory that does not match the
+    allowlist), fail closed to CLI
     `opencode run --dir` — never execute against the serve process cwd.
     HTTP read timeouts after serve is reached fail the job as timed_out
     rather than falling back. The model still only sees workspace_id,
@@ -4057,7 +4059,8 @@ coding_agents:
   http: |
     REST inspect/cancel (same shared-secret gate, x-api-key or Bearer):
     GET /coding-jobs (list; status?, limit 1–500), GET /coding-jobs/{job_id}
-    (404 if missing), POST /coding-jobs/{job_id}/cancel (404 if missing).
+    (404 if missing), POST /coding-jobs/{job_id}/cancel (404 if missing;
+    409 not_running when already terminal).
     Start is chat-only (start_coding_job); POST /coding-jobs is not a route.
   docker: |
     Default API container mounts executive_data at /data only — no git repos,

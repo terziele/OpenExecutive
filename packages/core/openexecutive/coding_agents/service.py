@@ -285,6 +285,11 @@ def _fail_job(
     *,
     events: list[str] | None = None,
 ) -> None:
+    """Persist ``failed`` via compare-and-swap, then maybe notify.
+
+    A lost CAS (cancel already claimed the row) skips audit and the
+    principal card so kill-as-failure cannot land in /today.
+    """
     if not store.update_job(
         job_id,
         status="failed",
@@ -366,6 +371,12 @@ async def _safe_abort(runner: CodingRuntime) -> None:
 
 
 async def get_job(job_id: str) -> dict[str, Any]:
+    """Fetch one job for tools and GET /coding-jobs/{id}.
+
+    Missing rows are a structured ``unknown_job`` error so the HTTP
+    route can map to 404 without guessing. Huge artifacts are truncated
+    to the tool-result budget; operators still have the store row.
+    """
     if not job_id:
         return _error("job_id is required.", "invalid_input")
     row = store.get_job(job_id)
@@ -379,6 +390,7 @@ async def list_jobs(
     status: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
+    """List jobs for GET /coding-jobs. Same truncation as ``get_job``."""
     return [_truncate_for_tool(row) for row in store.list_jobs(status=status, limit=limit)]
 
 

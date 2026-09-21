@@ -91,6 +91,21 @@ def test_unauthenticated_paths_work_without_a_key(
     assert options.status_code != 401
 
 
+def test_coding_jobs_are_not_unauthenticated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Inspect/cancel stays behind the shared-secret gate."""
+    from openexecutive.api import main
+
+    allowed = frozenset({"/health", "/webhook/telegram", "/webhook/google-chat"})
+    assert "/coding-jobs" not in main._UNAUTHENTICATED_PATHS
+    assert allowed == main._UNAUTHENTICATED_PATHS
+
+    client = _gated_client(monkeypatch)
+    list_resp = client.get("/coding-jobs", follow_redirects=False)
+    assert list_resp.status_code == 401
+    get_resp = client.get("/coding-jobs/abc123", follow_redirects=False)
+    assert get_resp.status_code == 401
+
+
 def test_query_string_secret_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     """The gate reads headers only — never a URL query."""
     client = _gated_client(monkeypatch)

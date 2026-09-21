@@ -55,7 +55,7 @@ The system is designed around Anthropic prompt caching. Breaking caching = 10x c
 
 Build order in `prompts/cache_manager.py`:
 1. Tool definitions (sorted by name — MUST be sorted)
-2. Executive persona constant (from `prompts/executive_persona.py` — NEVER f-stringed)
+2. Executive persona constant (from `prompts/executive_persona.py` — NEVER f-stringed). `CODING_AGENT_ADDENDUM` in that module is a cache-stable constant — never f-string it into a cached system block.
 3. Company profile block (from `memory/company_profile.py`)
 4. Knowledge index summary
 
@@ -98,6 +98,7 @@ Company-specific data lives in `packages/core/company/` — **gitignored**. Neve
 Structure:
 - `company/profile.yaml` — structured company profile (populated by onboarding wizard)
 - `company/docs/` — uploaded documents (indexed into ChromaDB)
+- `company/coding_agents.yaml` — operator allowlist for outbound coding-agent workspaces (template: `packages/core/coding_agents.yaml.example`). Empty or missing is not consent.
 
 ## Code Style
 

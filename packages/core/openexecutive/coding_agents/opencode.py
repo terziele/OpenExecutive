@@ -110,10 +110,14 @@ class OpenCodeRuntime:
         if self.serve_url:
             try:
                 return await self._run_http(job, workspace)
-            except _HttpWorkspaceBindError:
+            except _HttpWorkspaceBindError as bind_err:
+                cause = bind_err.__cause__
+                cause_cls = type(cause).__name__ if cause is not None else "none"
                 logger.warning(
-                    "OpenCode serve could not bind workspace %s; falling back to CLI",
+                    "OpenCode serve could not bind workspace %s; falling back to CLI (%s, cause=%s)",
                     workspace.id,
+                    str(bind_err),
+                    cause_cls,
                 )
                 return await self._run_cli(job, workspace)
         return await self._run_cli(job, workspace)
@@ -165,6 +169,8 @@ class OpenCodeRuntime:
                 session_id = await self._create_session(job, workspace)
             except asyncio.CancelledError:
                 raise
+            except _HttpWorkspaceBindError:
+                raise
             except httpx.ConnectTimeout as exc:
                 raise _HttpWorkspaceBindError(
                     f"OpenCode serve could not bind workspace: {exc.__class__.__name__}"
@@ -172,7 +178,7 @@ class OpenCodeRuntime:
             except httpx.TimeoutException:
                 # Read/write hang after reaching serve is a job timeout, not a bind miss.
                 raise
-            except (httpx.HTTPError, _HttpWorkspaceBindError, CodingRuntimeError) as exc:
+            except (httpx.HTTPError, CodingRuntimeError) as exc:
                 raise _HttpWorkspaceBindError(
                     f"OpenCode serve could not bind workspace: {exc.__class__.__name__}"
                 ) from exc
@@ -213,7 +219,11 @@ class OpenCodeRuntime:
         if not isinstance(session_id, str) or not session_id:
             raise _HttpWorkspaceBindError("OpenCode serve did not return a session id")
         reported = _reported_session_directory(payload)
-        if reported is not None and not _same_directory(reported, directory):
+        if reported is None:
+            raise _HttpWorkspaceBindError(
+                "OpenCode serve did not echo the workspace directory"
+            )
+        if not _same_directory(reported, directory):
             raise _HttpWorkspaceBindError(
                 "OpenCode serve bound a different directory than the allowlist"
             )

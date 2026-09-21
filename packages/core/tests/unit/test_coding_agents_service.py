@@ -188,6 +188,19 @@ async def test_disabled_feature_flag(
 
 
 @pytest.mark.asyncio
+async def test_missing_yaml_returns_config_unavailable(
+    settings: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.service.load_coding_agents_file",
+        lambda _path: None,
+    )
+    result = await service.start_job("product", "explain it", "ask")
+    assert result["code"] == "config_unavailable"
+    assert "job_id" not in result
+
+
+@pytest.mark.asyncio
 async def test_start_returns_job_id_immediately(
     settings: MagicMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -286,6 +299,7 @@ async def test_success_creates_principal_artifact_alert(
         "openexecutive.coding_agents.service.get_runtime",
         lambda *a, **k: _ImmediateRuntime(),
     )
+    principal_id = people_store.upsert_person(full_name="Founder", is_principal=True)
     started = await service.start_job("product", "summarize", "plan")
     row = await _wait_terminal(started["job_id"])
     cards = _artifact_alerts()
@@ -293,6 +307,7 @@ async def test_success_creates_principal_artifact_alert(
     card = cards[0]
     assert card.topic_tags == ["artifact"]
     assert card.source == "artifact"
+    assert card.routed_to_person_id == principal_id
     assert started["job_id"] in card.body
     assert "product" in card.body
     assert "succeeded" in card.body
@@ -443,6 +458,54 @@ async def test_cancel_wins_kill_as_failure_without_alert(
     row = await service.get_job(started["job_id"])
     assert row["status"] == "cancelled"
     assert _artifact_alerts() == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_success_returns_not_running(
+    settings: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.service.get_runtime",
+        lambda *a, **k: _ImmediateRuntime(),
+    )
+    started = await service.start_job("product", "summarize", "plan")
+    row = await _wait_terminal(started["job_id"])
+    assert row["status"] == "succeeded"
+    result = await service.cancel_job(started["job_id"])
+    assert result["code"] == "not_running"
+    again = await service.get_job(started["job_id"])
+    assert again["status"] == "succeeded"
+    assert again.get("artifact") == "artifact-ok"
+
+
+@pytest.mark.asyncio
+async def test_unexpected_exception_fails_job_and_notifies(
+    settings: MagicMock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Crash:
+        async def run(self, job: Any, workspace: Any) -> tuple[str, list[str]]:
+            raise RuntimeError("vendor boom at /secret/path")
+
+        async def abort(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "openexecutive.coding_agents.service.get_runtime",
+        lambda *a, **k: _Crash(),
+    )
+    started = await service.start_job("product", "summarize", "ask")
+    row = await _wait_terminal(started["job_id"])
+    assert row["status"] == "failed"
+    assert "vendor boom" in (row["error"] or "")
+    cards = _artifact_alerts()
+    assert len(cards) == 1
+    assert "The analysis job did not finish successfully." in cards[0].body
+    assert "vendor boom" not in cards[0].body
+    assert "/secret/path" not in cards[0].body
+    joined = f"{cards[0].headline}\n{cards[0].body}\n{cards[0].suggested_action}".lower()
+    assert "cursor" not in joined
+    assert "opencode" not in joined
+    assert "stderr" not in joined
 
 
 @pytest.mark.asyncio

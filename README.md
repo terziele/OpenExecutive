@@ -91,6 +91,7 @@ openexecutive/
 │   │       ├── audit/            # Audit logging
 │   │       ├── architecture/     # Internal architecture utilities
 │   │       ├── workflows/        # Multi-step workflow definitions
+│   │       ├── coding_agents/    # Outbound Cursor CLI / OpenCode job runner
 │   │       └── cli.py            # Click CLI
 │   └── ui/                       # Next.js 15 web UI
 ├── evals/                        # Eval scenarios + LLM-as-judge runner

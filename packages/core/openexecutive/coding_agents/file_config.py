@@ -21,7 +21,12 @@ _MAX_YAML_BYTES = 256 * 1024
 
 
 class CodingAgentsConfigError(ValueError):
-    """YAML missing, invalid, or an allowlist lookup failed."""
+    """Allowlist lookup, path, or runtime choice failed.
+
+    Raised by ``get_workspace``, ``validate_workspace_path``, and
+    ``resolve_runtime_choice``. ``load_coding_agents_file`` never raises:
+    missing or invalid YAML returns ``None`` and logs a warning.
+    """
 
     def __init__(self, message: str, *, code: str) -> None:
         super().__init__(message)
@@ -90,13 +95,12 @@ def get_workspace(config: CodingAgentsFile, workspace_id: str) -> WorkspaceSpec:
 
 
 def validate_workspace_path(configured: Path) -> Path:
-    """Resolve the allowlisted path and require it to be a real directory.
+    """Resolve the allowlisted path and require it to be an existing directory.
 
-    Rejects ``..`` components so a YAML path cannot walk out of its tree.
-    The configured path may itself be a symlink — resolving that one hop is
-    OK (the operator chose it). We never join extra, model-supplied segments,
-    so a symlink *inside* the workspace is not a workspace-selection jailbreak.
-    The path we use must be exactly ``configured.expanduser().resolve()``.
+    Rejects ``..`` components so a YAML path cannot walk out via relative
+    segments. ``expanduser().resolve()`` follows a symlink *at* the
+    configured path (the operator chose that entry). This does not jail
+    in-workspace symlinks; the model never supplies extra path segments.
     """
     raw = Path(configured)
     if any(part == ".." for part in raw.parts):
@@ -111,15 +115,6 @@ def validate_workspace_path(configured: Path) -> Path:
             f"workspace path could not be resolved: {exc}",
             code="invalid_workspace_path",
         ) from exc
-
-    # Identity: the path we will exec in is the resolved allowlist entry,
-    # not a different location derived from user input.
-    allowlisted = Path(configured).expanduser().resolve()
-    if resolved != allowlisted:
-        raise CodingAgentsConfigError(
-            "workspace path escaped the allowlisted directory",
-            code="invalid_workspace_path",
-        )
     if not resolved.is_dir():
         raise CodingAgentsConfigError(
             "workspace path must exist and be a directory",

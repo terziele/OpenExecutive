@@ -75,6 +75,48 @@ def test_empty_file_returns_none(tmp_path: Path) -> None:
     assert coding_agents_config_file_present(path) is False
 
 
+def test_duplicate_workspace_ids_fail_closed(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    path = tmp_path / "dup.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "runtimes": {
+                    "cursor": {"enabled": True, "binary": "agent"},
+                    "opencode": {"enabled": True, "binary": "opencode"},
+                },
+                "workspaces": [
+                    {"id": "product", "path": str(workspace)},
+                    {"id": "product", "path": str(workspace)},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert load_coding_agents_file(path) is None
+
+
+def test_path_like_workspace_ids_in_yaml_fail_closed(tmp_path: Path) -> None:
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    for bad_id in ("../x", "foo/bar"):
+        path = tmp_path / "bad_id.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "runtimes": {
+                        "cursor": {"enabled": True, "binary": "agent"},
+                        "opencode": {"enabled": True, "binary": "opencode"},
+                    },
+                    "workspaces": [{"id": bad_id, "path": str(workspace)}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        assert load_coding_agents_file(path) is None, bad_id
+
+
 def test_invalid_yaml_returns_none(tmp_path: Path) -> None:
     path = tmp_path / "bad.yaml"
     path.write_text("runtimes: [unterminated", encoding="utf-8")

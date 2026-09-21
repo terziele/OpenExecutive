@@ -28,6 +28,10 @@ def _unknown(payload: dict[str, Any]) -> bool:
     return payload.get("code") == "unknown_job"
 
 
+def _not_running(payload: dict[str, Any]) -> bool:
+    return payload.get("code") == "not_running"
+
+
 @router.get("/coding-jobs", response_model=CodingJobListResponse)
 async def list_coding_jobs(
     status: JobStatus | None = None,
@@ -50,4 +54,6 @@ async def cancel_coding_job(job_id: str) -> dict[str, Any]:
     result = await cancel_job(job_id)
     if _unknown(result):
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    if _not_running(result):
+        raise HTTPException(status_code=409, detail=result)
     return result
