@@ -226,6 +226,17 @@ SECTIONS: list[SectionSpec] = [
         diagram_kind="flowchart",
     ),
     SectionSpec(
+        id="coding_agents",
+        title="Coding Agents",
+        sub="Executive-dispatched Cursor CLI / OpenCode jobs (ask/plan) against an allowlisted workspace; inverse of MCP inbound.",
+        kb_query=(
+            "coding_jobs workspace allowlist Cursor CLI print mode OpenCode serve "
+            "start_coding_job get_coding_job cancel_coding_job async job handle"
+        ),
+        wants_mermaid=True,
+        diagram_kind="flowchart",
+    ),
+    SectionSpec(
         id="user_guide",
         title="User Guide Surface",
         sub="The /guide page — plain-language, per-feature overviews served from static prebuilt JSON, sharing the architecture page's loader and renderer but separate from this technical reference.",

@@ -1118,6 +1118,11 @@ _SYNTHESIS_EXCLUDED_TOOLS = frozenset({
     # recursion risk in a different coat: a finding can suggest a workflow
     # (suggest_workflow) for a human to start, never start one itself.
     "run_workflow",
+    # Coding jobs are side-effecting subprocess work. Synthesis may
+    # suggest an analysis to a human; it must not spawn or cancel one.
+    "start_coding_job",
+    "cancel_coding_job",
+    "get_coding_job",
     "send_company_broadcast",
     # Watchlist writes are withheld from the routing pass: every watch the
     # research run creates must go through the dedicated watchlist pass and

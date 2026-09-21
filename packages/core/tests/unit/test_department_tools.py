@@ -14,6 +14,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from openexecutive.coding_agents.tools import (
+    handle_cancel_coding_job,
+    handle_get_coding_job,
+    handle_start_coding_job,
+)
 from openexecutive.departments import registry as dept_registry
 from openexecutive.departments import store as dept_store
 from openexecutive.memory import episodic as episodic_module
@@ -327,8 +332,12 @@ def test_department_tools_wired_into_executive_registry() -> None:
     names = {t["name"] for t in _ALL_SKILL_TOOLS}
     assert "list_department_goals" in names
     assert "update_department_goal" in names
+    assert {"cancel_coding_job", "get_coding_job", "start_coding_job"} <= names
     assert _ALL_SKILL_HANDLERS["list_department_goals"] is handle_list_department_goals
     assert _ALL_SKILL_HANDLERS["update_department_goal"] is handle_update_department_goal
+    assert _ALL_SKILL_HANDLERS["cancel_coding_job"] is handle_cancel_coding_job
+    assert _ALL_SKILL_HANDLERS["get_coding_job"] is handle_get_coding_job
+    assert _ALL_SKILL_HANDLERS["start_coding_job"] is handle_start_coding_job
 
 
 def test_tool_list_sorts_stably_by_name() -> None:
@@ -341,3 +350,6 @@ def test_tool_list_sorts_stably_by_name() -> None:
     assert sorted_names == sorted(sorted_names)
     assert "list_department_goals" in sorted_names
     assert "update_department_goal" in sorted_names
+    assert "cancel_coding_job" in sorted_names
+    assert "get_coding_job" in sorted_names
+    assert "start_coding_job" in sorted_names

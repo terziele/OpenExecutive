@@ -91,13 +91,14 @@ openexecutive/
 │   │       ├── audit/            # Audit logging
 │   │       ├── architecture/     # Internal architecture utilities
 │   │       ├── workflows/        # Multi-step workflow definitions
+│   │       ├── coding_agents/    # Outbound Cursor CLI / OpenCode job runner
 │   │       └── cli.py            # Click CLI
 │   └── ui/                       # Next.js 15 web UI
 ├── evals/                        # Eval scenarios + LLM-as-judge runner
 ├── fixtures/                     # Demo company fixtures (profiles, docs, rosters)
 ├── scripts/                      # Operator scripts (Google auth)
 ├── docker/                       # Dockerfile(s) + docker-compose.yml
-└── docs/                         # Architecture + deployment docs
+└── docs/                         # architecture.md, deployment.md, [coding_agents.md](docs/coding_agents.md)
 ```
 
 ## Quick Start

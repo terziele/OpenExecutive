@@ -13,7 +13,7 @@ Design notes
 
 * **Auth.** The endpoint is intentionally NOT added to the API's
   ``_UNAUTHENTICATED_PATHS``; the existing shared-secret middleware gates it,
-  so clients pass ``x-api-key: $BACKEND_SHARED_SECRET`` like the UI does.
+  so clients pass ``x-api-key`` or ``Authorization: Bearer $BACKEND_SHARED_SECRET``.
 
 * **DNS-rebinding protection** (FastMCP's Host-header check) is disabled: the
   endpoint authenticates with a header secret (not a cookie), so a browser

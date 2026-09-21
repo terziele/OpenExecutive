@@ -44,6 +44,9 @@ def test_sections_have_unique_stable_ids() -> None:
         # `mcp_server` — Open Executive exposed as an MCP server (the inverse
         # of the MCP gateway). New top-level module under packages/core.
         "mcp_server",
+        # `coding_agents` — outbound Cursor CLI / OpenCode jobs (ask/plan).
+        # Inverse of mcp_server. New top-level module under packages/core.
+        "coding_agents",
         # `user_guide` — documents the /guide user-guide surface (plain-language
         # per-feature overviews). New top-level module under packages/core.
         "user_guide",

@@ -55,7 +55,7 @@ The system is designed around Anthropic prompt caching. Breaking caching = 10x c
 
 Build order in `prompts/cache_manager.py`:
 1. Tool definitions (sorted by name — MUST be sorted)
-2. Executive persona constant (from `prompts/executive_persona.py` — NEVER f-stringed)
+2. Executive persona constant (from `prompts/executive_persona.py` — NEVER f-stringed). `CODING_AGENT_ADDENDUM` in that module is a cache-stable constant — never f-string it into a cached system block.
 3. Company profile block (from `memory/company_profile.py`)
 4. Knowledge index summary
 
@@ -98,6 +98,7 @@ Company-specific data lives in `packages/core/company/` — **gitignored**. Neve
 Structure:
 - `company/profile.yaml` — structured company profile (populated by onboarding wizard)
 - `company/docs/` — uploaded documents (indexed into ChromaDB)
+- `company/coding_agents.yaml` — operator allowlist for outbound coding-agent workspaces (template: `packages/core/coding_agents.yaml.example`). Empty or missing is not consent.
 
 ## Code Style
 
@@ -125,6 +126,7 @@ When your PR materially changes a documented topic, **re-author the affected `pr
 - Schema change to a documented table → `schemas`
 - Endpoint added, removed, renamed, or response-shape changed → `api` (and any section that names it)
 - New top-level module under `packages/core/openexecutive/` → add a `SectionSpec` in `architecture/sections.py`, a matching entry in `packages/ui/src/app/architecture/page.tsx` (IDs must match), AND a new `prebuilt/<id>.json`
+- Coding-agent runtimes (Cursor CLI / OpenCode job runner, not a specialist) → `coding_agents`
 
 Each `prebuilt/<id>.json` has the keys `section_id`, `title`, `markdown`, `mermaid` (a Mermaid string or `null`), and `generated_at`. The Markdown must not include the section heading (the UI renders the title). Validate edits with `python -m json.tool`.
 

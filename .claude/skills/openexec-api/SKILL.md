@@ -1,6 +1,6 @@
 ---
 name: openexec-api
-description: Interact with the Open Executive FastAPI backend via curl. Use this skill when the user asks to hit /chat, /today, /people, /scheduled_actions, /architecture/*, /health/*, /fixtures/*, /audit/*, or any HTTP endpoint on the Open Executive API, local or deployed. Authenticates via $BACKEND_SHARED_SECRET in the x-api-key header. Tiered safety: GET runs freely, mutating POSTs need explicit confirmation.
+description: Interact with the Open Executive FastAPI backend via curl. Use this skill when the user asks to hit /chat, /today, /people, /scheduled_actions, /architecture/*, /health/*, /fixtures/*, /audit/*, /coding-jobs, or any HTTP endpoint on the Open Executive API, local or deployed. Authenticates via $BACKEND_SHARED_SECRET in the x-api-key header. Tiered safety: GET runs freely, mutating POSTs need explicit confirmation.
 ---
 
 # openexec-api
@@ -31,7 +31,7 @@ Rules:
 ## Safety tiers
 
 - **Green — auto-run.** All `GET` requests, and the cheap idempotent regenerate POSTs.
-- **Yellow — confirm once per session.** Writes that change durable state but are reversible (e.g. archiving a Person, deleting a scheduled action).
+- **Yellow — confirm once per session.** Writes that change durable state but are reversible (e.g. archiving a Person, deleting a scheduled action, cancelling a coding job).
 - **Red — print the curl, wait for explicit "go," no chaining.** `POST /fixtures/reset`, `POST /fixtures/{name}/load`, `POST /fixtures/unload`, `POST /fixtures/snapshot`, `POST /chat` (impersonates the user — generally don't invoke from Claude).
 
 Each red command needs its own "go" — a prior approval does not carry over.
@@ -92,6 +92,26 @@ curl -s -H "x-api-key: $BACKEND_SHARED_SECRET" "$OE_API/audit/logs?event_type=pe
 
 # One event by id (returns full details_json)
 curl -s -H "x-api-key: $BACKEND_SHARED_SECRET" "$OE_API/audit/logs/12345" | jq
+```
+
+## Green: coding jobs
+
+List and fetch only. Start stays on the Executive chat tool (`start_coding_job`); there is no `POST /coding-jobs`.
+
+```bash
+# Recent jobs (optional status=queued|running|succeeded|failed|cancelled|timed_out)
+curl -s -H "x-api-key: $BACKEND_SHARED_SECRET" "$OE_API/coding-jobs?limit=20" | jq
+
+# One job
+curl -s -H "x-api-key: $BACKEND_SHARED_SECRET" $OE_API/coding-jobs/<job_id> | jq
+```
+
+## Yellow: cancel a coding job
+
+Reversible for queued/running jobs (already-terminal jobs return an error payload). Confirm once per session.
+
+```bash
+curl -sX POST -H "x-api-key: $BACKEND_SHARED_SECRET" $OE_API/coding-jobs/<job_id>/cancel | jq
 ```
 
 ## Green: fixtures (demo companies)

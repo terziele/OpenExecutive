@@ -31,6 +31,7 @@ const SECTIONS = [
   { id: 'today', label: 'Today / Morning Brief', sub: 'The /today route — per-department goal health, a roster with awaiting-action counts, and proposals routed to a person.' },
   { id: 'api', label: 'API Reference', sub: 'The FastAPI HTTP surface — endpoints grouped by router.' },
   { id: 'mcp_server', label: 'MCP Server', sub: 'Open Executive exposed as an MCP server — company context as resources and the specialist council as tools, over Streamable-HTTP at /mcp for external agents.' },
+  { id: 'coding_agents', label: 'Coding Agents', sub: 'Executive-dispatched Cursor CLI / OpenCode jobs (ask/plan) against an allowlisted workspace — inverse of MCP inbound.' },
   { id: 'user_guide', label: 'User Guide Surface', sub: "The /guide page — plain-language, per-feature overviews served from static prebuilt JSON, sharing this page's loader and renderer but separate from this technical reference." },
   { id: 'clients', label: 'Client Companies (Slots)', sub: 'Multi-client mode for fractional executives: named save files of the full company context, one active at a time, with save-back switching and per-client MCP tool configs.' },
 ];

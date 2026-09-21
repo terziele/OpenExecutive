@@ -11,7 +11,7 @@ Two independent layers. Either one alone would be insufficient; together they fa
 | Layer | What it does | Where |
 |---|---|---|
 | **UI: Auth.js v5 + Google OAuth** | Anyone hitting the public UI is redirected to `/signin`. Only Google accounts on the allow-list can complete sign-in — the **union** of `ALLOWED_EMAILS` and the People roster (see below). | [packages/ui/src/auth.ts](../packages/ui/src/auth.ts), [packages/ui/src/middleware.ts](../packages/ui/src/middleware.ts), [packages/ui/src/app/signin/page.tsx](../packages/ui/src/app/signin/page.tsx) |
-| **API: shared-secret header** | The FastAPI backend is reachable over the network. It rejects every request whose `x-api-key` header doesn't match `BACKEND_SHARED_SECRET`. The UI proxy stamps this header on every upstream call. | [packages/core/openexecutive/api/main.py](../packages/core/openexecutive/api/main.py), [packages/ui/src/app/api/backend/[...path]/route.ts](../packages/ui/src/app/api/backend/%5B...path%5D/route.ts) |
+| **API: shared-secret header** | The FastAPI backend is reachable over the network. It rejects every request that does not present `BACKEND_SHARED_SECRET` via `x-api-key` (primary; the Next.js proxy stamps this) or `Authorization: Bearer` (alias for MCP/CLI clients). Never put the secret in a URL query. | [packages/core/openexecutive/api/main.py](../packages/core/openexecutive/api/main.py), [packages/ui/src/app/api/backend/[...path]/route.ts](../packages/ui/src/app/api/backend/%5B...path%5D/route.ts) |
 
 ### Who is on the allow-list
 
@@ -51,6 +51,8 @@ Browser ──► exec.example.com (UI) ──► (middleware: session check)
                                         ▼
                                     route handler
 ```
+
+MCP and CLI clients (Cursor, OpenCode, and anything else that only documents `headers.Authorization`) may send `Authorization: Bearer $BACKEND_SHARED_SECRET` instead of `x-api-key`. The Next.js proxy still stamps `x-api-key` on browser traffic. If both headers are present they must be identical; a mismatch is 401. Do not put the secret in a query string — the gate does not read URL parameters.
 
 ### Exempt paths (API)
 
@@ -230,6 +232,7 @@ docker compose logs -f api
 curl -sv https://api.example.com/health                                     # 200
 curl -sv https://api.example.com/sessions                                   # 401
 curl -sv -H "x-api-key: $SHARED" https://api.example.com/sessions           # 200
+curl -sv -H "Authorization: Bearer $SHARED" https://api.example.com/sessions # 200 (MCP/CLI alias)
 ```
 
 ---

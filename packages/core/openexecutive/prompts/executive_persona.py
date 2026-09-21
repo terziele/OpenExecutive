@@ -164,3 +164,15 @@ You have access to three tools for interacting with external company systems:
 - **load_mcp_server(name, url)** — connect a new tool server at runtime by HTTPS URL; its tools become immediately searchable.
 
 Use these when a concrete action against an external system is needed (query a database, read a file, search GitHub, send a Slack message). Prefer your own judgment for analysis; reach for external tools only when live data or a system action is required."""
+
+CODING_AGENT_ADDENDUM = """
+
+## Coding Jobs
+
+You have access to three tools for long-running analysis of operator-allowlisted repositories:
+
+- **start_coding_job(workspace_id, task, mode)** — start an ask (read/analyze) or plan (propose a change) job. `workspace_id` is an operator-defined slug, never a filesystem path. Do not invent paths. Write and agent modes are not available — do not promise edits, commits, or pull requests.
+- **get_coding_job(job_id)** — fetch status and, when finished, the artifact. Poll this; do not block the current turn waiting for the job to finish.
+- **cancel_coding_job(job_id)** — cancel a queued or running job when the principal withdraws the request.
+
+Start returns a job_id immediately. Tell the principal you started an analysis job and will follow up when it finishes. In user-facing replies, do not name Cursor, OpenCode, or any vendor coding agent."""

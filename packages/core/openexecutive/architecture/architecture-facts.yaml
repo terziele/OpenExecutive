@@ -1,14 +1,13 @@
 # Curated, hand-written facts about the Open Executive architecture.
 #
-# This file is the highest-trust source of truth fed into the LLM when
-# generating the /architecture page. It captures design intent and
-# invariants that are not derivable from a quick code skim — the *why*
-# behind the code. The page generator combines this with:
-#   - live introspection (agents, workflows, openapi)
-#   - repo code excerpts
-#   - retrieved KB chunks
-# A change to this file invalidates the cache and triggers regeneration
-# of every section on next view.
+# These are the authoritative notes you (or Claude Code) read when
+# re-authoring a section under architecture/prebuilt/<section_id>.json.
+# The /architecture page is served from those static JSON files; the
+# API (`api/routes/architecture.py`) only reads them. Nothing on that
+# path calls an LLM. This YAML is no longer fed to a runtime generator.
+#
+# A change here does not update the page until the matching
+# prebuilt/<id>.json is hand-edited in the same PR.
 
 system:
   name: Open Executive
@@ -112,9 +111,10 @@ caching:
       ttl: 1h
       what: |
         Executive persona constant (or admin-set persona override) +
-        {VOICE_PERSONA} substitution + conditional WEB_SEARCH_ADDENDUM and
-        MCP_ADDENDUM + identity addendum (exec name/email, impersonation
-        guard) + timezone addendum + KNOWLEDGE_INDEX_SUMMARY.
+        {VOICE_PERSONA} substitution + conditional WEB_SEARCH_ADDENDUM,
+        MCP_ADDENDUM, and CODING_AGENT_ADDENDUM + identity addendum (exec
+        name/email, impersonation guard) + timezone addendum +
+        KNOWLEDGE_INDEX_SUMMARY.
       why_cached: |
         All components are either constants, file-loaded once at startup,
         or admin-mutable but otherwise process-stable. Long TTL because
@@ -860,6 +860,7 @@ memory:
     - initiatives
     - advice_given
     - scheduled_actions
+    - coding_jobs
     - "app_migrations — one-shot data migrations (name PK, applied_at). Schema DDL stays idempotent and is NOT recorded here; only sweeps that must run exactly once per DB insert a row. First user is `cancel_orphaned_talent_reminders` (2026-09), deletable in the release after next."
   formatter: openexecutive.memory.episodic.format_for_prompt — produces a compact prompt block of recent decisions/initiatives.
   session_scoping: |
@@ -2610,7 +2611,10 @@ workflows:
     (`executive_reflection` and the `executive_research` synthesis): both
     render open alerts into their context, those headlines come from inbound
     mail and chat, and the server-side ack trust check keys on a session's
-    `origin_channel`, which those passes do not set.
+    `origin_channel`, which those passes do not set. `start_coding_job` and
+    `cancel_coding_job` are withheld from the same passes so an unattended
+    loop cannot spawn or cancel host subprocesses; research synthesis also
+    withholds `get_coding_job`.
     `resumer.apply_resolution` then records the
     decision, marks the run `resolved`, and writes an audit row. A timeout
     instead applies the step's `on_timeout` policy (escalate /
@@ -2964,7 +2968,10 @@ auth:
     BACKEND_SHARED_SECRET via x-api-key header gates every API route
     (see api.main._shared_secret_gate). The Next.js proxy at
     /app/api/backend/[...path] holds the secret and stamps it on
-    every upstream request.
+    every upstream request. MCP clients may also send
+    `Authorization: Bearer <BACKEND_SHARED_SECRET>` — an alias of the
+    same secret, preferred in Cursor/OpenCode MCP configs; REST and
+    the UI continue to use x-api-key.
   per_user_identity: |
     The Next.js proxy also stamps `x-caller-email` from the verified
     NextAuth session (lowercased) on every upstream request. The
@@ -3490,7 +3497,9 @@ integrations:
 
     Auth: `/mcp` is intentionally NOT in _UNAUTHENTICATED_PATHS — the existing
     shared-secret middleware gates it, so clients send `x-api-key:
-    $BACKEND_SHARED_SECRET` like the UI. FastMCP's DNS-rebinding (Host-header)
+    $BACKEND_SHARED_SECRET` like the UI, or `Authorization: Bearer
+    $BACKEND_SHARED_SECRET` (same secret, preferred for Cursor CLI / OpenCode
+    MCP configs). FastMCP's DNS-rebinding (Host-header)
     check is disabled (TransportSecuritySettings(enable_dns_rebinding_protection
     =False)): the endpoint authenticates with a header secret, not a cookie, so
     a browser rebinding attack cannot supply the key, and traffic arrives behind
@@ -3981,6 +3990,82 @@ clients:
     see nothing anywhere. Deliberately NOT doing periodic autosave: the
     active card is always live-fresh; parked staleness is inherent until
     the v2 overnight-rotation phase.
+
+coding_agents:
+  what: |
+    openexecutive.coding_agents — outbound coding runtimes (Cursor CLI,
+    OpenCode), the inverse of `integrations.mcp_server` (inbound MCP).
+    OE is the brain; runtimes are hands. Not a specialist and not in
+    SPECIALIST_REGISTRY — job tools live on the Executive like MCP gateway
+    / workflow primitives.
+  enablement: |
+    Inferred from a non-empty `company/coding_agents.yaml` (size-only,
+    same pattern as MCP from `mcp_servers.json`). Invalid YAML still
+    auto-enables; start_job then returns config_unavailable. Explicit
+    CODING_AGENTS_ENABLED always wins. Template:
+    packages/core/coding_agents.yaml.example.
+  allowlist: |
+    Operator YAML maps workspace_id slugs to filesystem paths on the JOB
+    HOST. The model supplies workspace_id only — never a path; validators
+    reject path-like ids. Unknown ids fail at start with a clear JSON error.
+  modes: |
+    P1: ask and plan only. agent/write modes are refused with
+    write_mode_deferred (not a stub). Default argv never includes --force,
+    --yolo, or --dangerously-skip-permissions.
+  job_handle: |
+    start_coding_job returns job_id immediately; chat does not block on
+    subprocess work. get_coding_job polls status/artifact; cancel_coding_job
+    cancels queued/running rows. asyncio tasks in service.py drive workers;
+    compare-and-swap on status prevents late success overwriting cancel.
+  persistence: |
+    coding_jobs table on episodic_memory.db (store.initialize_coding_jobs_db),
+    same backup unit as workflows. Index on (status, updated_at).
+  completion_notify: |
+    Terminal succeeded / failed / timed_out jobs insert an alerts-table card
+    via the same path as draft_artifact: source="artifact",
+    topic_tags=["artifact"], routed to the principal → /today "Needs you".
+    No DM. cancelled does not notify. Card copy includes job_id, workspace
+    slug, and status. Success cards include the artifact. Failure/timeout
+    cards use fixed one-voice sentences (never runtime stderr, never Cursor
+    or OpenCode names); operators inspect GET /coding-jobs for the log.
+    Notify runs after the store update in _execute_job; a notify
+    failure is logged and must not rewrite the job row. Cancel claims
+    cancelled via compare-and-swap *before* abort so kill-as-failure cannot
+    persist failed and notify.
+  tools_and_cache: |
+    cancel_coding_job, get_coding_job, start_coding_job are always registered
+    on the Executive tool list (sorted by name) for Anthropic cache stability
+    even when coding agents are disabled — handlers return a structured error
+    when off. CODING_AGENT_ADDENDUM in system block 0 (constant in
+    executive_persona.py, appended in cache_manager like MCP_ADDENDUM) only
+    when coding_agents_enabled; per-job context stays in tool results / user
+    turn, never f-stringed into cache_control blocks.
+  env_isolation: |
+    Subprocess env is an allowlist (PATH, HOME, LANG, TERM + runtime auth
+    keys). Slack/Google/BACKEND_SHARED_SECRET are not forwarded wholesale.
+  opencode_http_bind: |
+    OpenCode HTTP is preferred when serve_url is set. Session create must
+    include WorkspaceSpec.path as directory (JSON body; also query
+    ?directory= and x-opencode-directory for current serve routing) and
+    agent=plan on both POST /session and POST .../message (CLI already
+    passes --agent plan). If serve cannot bind that directory (connect
+    error, connect timeout, HTTP 4xx/5xx on session create, a missing
+    directory echo, or a returned directory that does not match the
+    allowlist), fail closed to CLI
+    `opencode run --dir` — never execute against the serve process cwd.
+    HTTP read timeouts after serve is reached fail the job as timed_out
+    rather than falling back. The model still only sees workspace_id,
+    never the filesystem path.
+  http: |
+    REST inspect/cancel (same shared-secret gate, x-api-key or Bearer):
+    GET /coding-jobs (list; status?, limit 1–500), GET /coding-jobs/{job_id}
+    (404 if missing), POST /coding-jobs/{job_id}/cancel (404 if missing;
+    409 not_running when already terminal).
+    Start is chat-only (start_coding_job); POST /coding-jobs is not a route.
+  docker: |
+    Default API container mounts executive_data at /data only — no git repos,
+    no agent binaries. Jobs must run on a host or optional sidecar with
+    bind-mounted allowlisted repos and CURSOR_API_KEY / OpenCode auth.
 
 diagram_style:
   required_classdefs: [entry, compute, storage, cache, external, hot]
